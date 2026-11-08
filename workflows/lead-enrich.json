@@ -1,0 +1,88 @@
+{
+  "name": "Lead qualification from e-mail",
+  "id": "f304ce11381454",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4622f878-0e12-544a-be9c-56e3fadb2a24",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "f7cf6108-39f4-5746-b507-9b242e5f9662"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// n8n Code node, mode \"Run Once for All Items\".\n// Input: webhook body = { email, name?, company? }\n// Output: { email, valid, domain, is_free_mail, is_disposable, is_role_address, company_guess, score, route, reasons[] } or { error }\nconst item = $input.first().json;\nconst b = (item && item.body) || {};\nconst email = String(b.email || '').trim().toLowerCase();\nif (!email) {\n  return [{ json: { error: 'email is required' } }];\n}\nconst FREE = new Set(['gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'icloud.com', 'me.com', 'proton.me', 'protonmail.com', 'gmx.com', 'gmx.net', 'gmx.de', 'aol.com', 'mail.com', 'yandex.com', 'zoho.com', 'web.de', 't-online.de', 'orange.fr', 'free.fr', 'mts.rs', 'eunet.rs', 'sbb.rs']);\nconst DISPOSABLE = new Set(['mailinator.com', 'guerrillamail.com', 'tempmail.com', 'temp-mail.org', '10minutemail.com', 'yopmail.com', 'trashmail.com', 'sharklasers.com', 'getnada.com', 'dispostable.com', 'throwawaymail.com']);\nconst ROLE = new Set(['info', 'sales', 'support', 'admin', 'contact', 'hello', 'office', 'team', 'billing', 'noreply', 'no-reply', 'postmaster', 'webmaster', 'hr', 'jobs']);\n// one @, no spaces, a dot in the domain, no leading/trailing dot or hyphen in a label\nconst SYNTAX = /^[a-z0-9._%+-]{1,64}@([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,24}$/;\nconst valid = SYNTAX.test(email) && !email.includes('..') && email.length <= 254;\nif (!valid) {\n  return [{ json: { email, valid: false, domain: null, is_free_mail: false, is_disposable: false, is_role_address: false, company_guess: null, score: 0, route: 'reject', reasons: ['invalid e-mail address'] } }];\n}\nconst [local, domain] = email.split('@');\nconst isFree = FREE.has(domain);\nconst isDisposable = DISPOSABLE.has(domain);\nconst isRole = ROLE.has(local.split('+')[0]);\nconst sld = domain.split('.').slice(-2, -1)[0];\nconst SECOND = new Set(['co', 'com', 'org', 'net', 'ac', 'gov', 'edu']);\nconst labels = domain.split('.');\nconst brand = labels.length >= 3 && SECOND.has(labels[labels.length - 2]) ? labels[labels.length - 3] : sld;\nconst companyGuess = isFree || isDisposable ? null : (b.company ? String(b.company).trim() : brand.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));\nconst reasons = [];\nlet score = 50;\nif (isDisposable) { score = 0; reasons.push('disposable e-mail provider'); }\nelse {\n  if (isFree) { score -= 25; reasons.push('free e-mail provider'); } else { score += 25; reasons.push('business domain'); }\n  if (isRole) { score -= 15; reasons.push('role address (' + local + '@)'); }\n  if (b.name && String(b.name).trim().split(/\\s+/).length >= 2) { score += 10; reasons.push('full name given'); }\n  if (b.company) { score += 10; reasons.push('company given'); }\n}\nscore = Math.max(0, Math.min(100, score));\nconst route = isDisposable ? 'reject' : score >= 60 ? 'sales' : 'nurture';\nreturn [{ json: { email, valid: true, domain, is_free_mail: isFree, is_disposable: isDisposable, is_role_address: isRole, company_guess: companyGuess, score, route, reasons } }];\n"
+      },
+      "id": "2271a23c-00d1-55e8-a63e-c0e799e55869",
+      "name": "Compute",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $('Compute').first().json.error ? { error: $('Compute').first().json.error } : $('Compute').first().json }}",
+        "options": {
+          "responseCode": "={{ $('Compute').first().json.error ? 422 : 200 }}"
+        }
+      },
+      "id": "339dc011-9bd3-5d9c-a41c-1dedf6a033cf",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        480,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Compute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "meta": {
+    "description": "Validates and scores a lead e-mail and routes it."
+  },
+  "tags": []
+}

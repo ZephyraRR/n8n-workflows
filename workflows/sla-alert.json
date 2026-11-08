@@ -1,0 +1,178 @@
+{
+  "name": "SLA alert to Slack",
+  "id": "304e4cf3ed6652",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sla-check",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4fae43da-aa17-5183-9257-d6584ce2c509",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "69977cd9-c478-5ff6-b4ee-fbb47724fd87"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// n8n Code node, mode \"Run Once for All Items\".\n// Input: webhook body = { now?: ISO time, tickets: [{ id, created, first_response?, resolved?, priority?, status? }], policy?: { urgent: { first_response_minutes, resolution_hours }, default: {...} }, slack_webhook_url?: string }\n// Output: one item { checked, breaches[], warnings[], alerts, slack_url, slack_payload, error? }\nconst item = $input.first().json;\nconst b = (item && item.body) || {};\nif (!Array.isArray(b.tickets)) {\n  return [{ json: { error: 'tickets must be an array' } }];\n}\nconst now = b.now ? new Date(b.now) : new Date();\nif (Number.isNaN(now.getTime())) {\n  return [{ json: { error: 'now is not a valid date' } }];\n}\nconst DEFAULT = { default: { first_response_minutes: 60, resolution_hours: 24 }, urgent: { first_response_minutes: 15, resolution_hours: 4 }, high: { first_response_minutes: 30, resolution_hours: 8 } };\nconst policy = Object.assign({}, DEFAULT, b.policy || {});\nconst WARN_AT = 0.8;\nconst toDate = (v) => { if (!v) return null; const d = new Date(v); return Number.isNaN(d.getTime()) ? null : d; };\nconst breaches = [];\nconst warnings = [];\nconst skipped = [];\nfor (const t of b.tickets) {\n  const created = toDate(t && t.created);\n  if (!t || t.id === undefined || !created) { skipped.push({ id: t && t.id, reason: 'missing id or invalid created time' }); continue; }\n  if (/^(solved|closed|resolved|done)$/i.test(String(t.status || '')) || toDate(t.resolved)) continue;\n  const pol = policy[String(t.priority || '').toLowerCase()] || policy.default;\n  const waitedMin = (now - created) / 60000;\n  const replied = toDate(t.first_response);\n  const checks = [];\n  if (!replied && pol.first_response_minutes) checks.push(['first response', waitedMin, pol.first_response_minutes]);\n  if (pol.resolution_hours) checks.push(['resolution', waitedMin, pol.resolution_hours * 60]);\n  for (const [kind, waited, limit] of checks) {\n    const row = { id: t.id, kind, priority: t.priority || 'default', waited_minutes: Math.round(waited), limit_minutes: limit };\n    if (waited > limit) breaches.push(row);\n    else if (waited > limit * WARN_AT) warnings.push(row);\n  }\n}\nconst line = (r) => `#${r.id} (${r.priority}) ${r.kind}: ${r.waited_minutes} of ${r.limit_minutes} min`;\nconst text = [].concat(breaches.length ? ['*SLA breached*'].concat(breaches.map(line)) : [], warnings.length ? ['*SLA at risk*'].concat(warnings.map(line)) : []).join('\\n');\nconst slackUrl = typeof b.slack_webhook_url === 'string' && /^https?:\\/\\//.test(b.slack_webhook_url) ? b.slack_webhook_url : '';\nreturn [{ json: { checked: b.tickets.length, breaches, warnings, skipped, alerts: breaches.length + warnings.length, slack_url: slackUrl, slack_payload: { text } } }];\n"
+      },
+      "id": "d79eb53c-42fd-5461-a021-5f2077b6f23f",
+      "name": "Compute",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "94c176d7-89f2-5807-81d5-4a965801c68f",
+              "leftValue": "={{ $json.alerts }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "08362b77-4737-5469-9447-0d717eeed1ac",
+              "leftValue": "={{ $json.slack_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d18c6069-4315-5a9d-b708-ed3a1bbfbbc4",
+      "name": "Alerts and Slack URL?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.slack_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.slack_payload) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "e501f4e9-d830-5b9d-9889-944d229d4091",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        -100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ (() => { const c = $('Compute').first().json; if (c.error) return { error: c.error }; const slack = $('Post to Slack').isExecuted ? { attempted: true, ok: !$('Post to Slack').first().json.error } : { attempted: false }; return { checked: c.checked, alerts: c.alerts, breaches: c.breaches, warnings: c.warnings, skipped: c.skipped, slack }; })() }}",
+        "options": {
+          "responseCode": "={{ $('Compute').first().json.error ? 422 : 200 }}"
+        }
+      },
+      "id": "83ac424d-1c5c-578f-8193-75f223017947",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1000,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Compute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute": {
+      "main": [
+        [
+          {
+            "node": "Alerts and Slack URL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alerts and Slack URL?": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}

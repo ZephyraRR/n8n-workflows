@@ -1,0 +1,29 @@
+{
+  "path": "lead",
+  "cases": [
+    {
+      "name": "business lead goes to sales",
+      "request": {"email": "Ana.Petrovic@Acme-Tools.com", "name": "Ana Petrovic", "company": "Acme Tools d.o.o."},
+      "status": 200,
+      "expect": {"valid": true, "domain": "acme-tools.com", "route": "sales", "score": 95, "company_guess": "Acme Tools d.o.o."}
+    },
+    {
+      "name": "free mail goes to nurture",
+      "request": {"email": "someone@gmail.com"},
+      "status": 200,
+      "expect": {"valid": true, "is_free_mail": true, "route": "nurture"}
+    },
+    {
+      "name": "disposable address is rejected",
+      "request": {"email": "x@mailinator.com"},
+      "status": 200,
+      "expect": {"is_disposable": true, "route": "reject", "score": 0}
+    },
+    {
+      "name": "missing e-mail is 422",
+      "request": {"name": "No Mail"},
+      "status": 422,
+      "expect": {"error": "email is required"}
+    }
+  ]
+}

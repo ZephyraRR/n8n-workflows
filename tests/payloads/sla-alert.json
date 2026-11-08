@@ -1,0 +1,47 @@
+{
+  "path": "sla-check",
+  "cases": [
+    {
+      "name": "one breach and one warning, Slack is posted",
+      "request": {
+        "now": "2025-03-03T12:00:00Z",
+        "slack_webhook_url": "@SLACK_URL@",
+        "tickets": [
+          {"id": 1, "created": "2025-03-03T10:30:00Z", "priority": "normal"},
+          {"id": 2, "created": "2025-03-03T11:10:00Z", "priority": "normal"},
+          {"id": 3, "created": "2025-03-03T11:55:00Z", "priority": "normal"},
+          {"id": 4, "created": "2025-03-03T06:00:00Z", "status": "Solved"}
+        ]
+      },
+      "status": 200,
+      "expect": {"checked": 4, "alerts": 2, "slack": {"attempted": true, "ok": true}},
+      "slack_text_contains": ["SLA breached", "#1", "SLA at risk", "#2"]
+    },
+    {
+      "name": "no alerts, no Slack call",
+      "request": {"now": "2025-03-03T12:00:00Z", "slack_webhook_url": "@SLACK_URL@", "tickets": [{"id": 9, "created": "2025-03-03T11:59:00Z"}]},
+      "status": 200,
+      "expect": {"alerts": 0, "slack": {"attempted": false}},
+      "slack_posts": 0
+    },
+    {
+      "name": "alerts but no Slack URL given",
+      "request": {"now": "2025-03-03T12:00:00Z", "tickets": [{"id": 1, "created": "2025-03-03T08:00:00Z"}]},
+      "status": 200,
+      "expect": {"alerts": 1, "slack": {"attempted": false}},
+      "slack_posts": 0
+    },
+    {
+      "name": "Slack is down: the workflow still answers",
+      "request": {"now": "2025-03-03T12:00:00Z", "slack_webhook_url": "@SLACK_FAIL_URL@", "tickets": [{"id": 1, "created": "2025-03-03T08:00:00Z"}]},
+      "status": 200,
+      "expect": {"alerts": 1, "slack": {"attempted": true, "ok": false}}
+    },
+    {
+      "name": "tickets missing is 422",
+      "request": {"now": "2025-03-03T12:00:00Z"},
+      "status": 422,
+      "expect": {"error": "tickets must be an array"}
+    }
+  ]
+}

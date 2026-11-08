@@ -1,0 +1,23 @@
+{
+  "path": "invoice",
+  "cases": [
+    {
+      "name": "English invoice",
+      "request": {"text": "Acme Hosting Ltd\nInvoice No: INV-2025-0042\nInvoice date: 2025-03-03\nDue date: 2025-03-17\nSubtotal: $1,000.00\nVAT 20%: $200.00\nTotal due: $1,200.00\nVAT ID: GB123456789"},
+      "status": 200,
+      "expect": {"vendor": "Acme Hosting Ltd", "invoice_number": "INV-2025-0042", "invoice_date": "2025-03-03", "due_date": "2025-03-17", "currency": "USD", "total": 1200, "confidence": 100}
+    },
+    {
+      "name": "Serbian invoice",
+      "request": {"text": "Zephyra Studio\nRačun br. 12-2025\nDatum izdavanja: 15.03.2025\nRok plaćanja: 30.03.2025\nUkupno za uplatu: 54.000,00 RSD\nPIB: 115123456"},
+      "status": 200,
+      "expect": {"invoice_number": "12-2025", "invoice_date": "2025-03-15", "currency": "RSD", "total": 54000, "tax_id": "115123456"}
+    },
+    {
+      "name": "too little text is rejected with 422",
+      "request": {"text": "hi"},
+      "status": 422,
+      "expect": {"error": "text is required (at least 10 characters)"}
+    }
+  ]
+}

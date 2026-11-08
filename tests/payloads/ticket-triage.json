@@ -1,0 +1,29 @@
+{
+  "path": "triage",
+  "cases": [
+    {
+      "name": "security incident from an enterprise customer",
+      "request": {"id": 101, "subject": "Account hacked", "body": "Someone made an unauthorized login and exported our data", "customer_tier": "enterprise"},
+      "status": 200,
+      "expect": {"id": 101, "category": "security", "priority": "urgent", "queue": "security", "sla_minutes": 15}
+    },
+    {
+      "name": "refund request",
+      "request": {"id": 102, "subject": "Refund please", "body": "I bought the wrong plan yesterday"},
+      "status": 200,
+      "expect": {"category": "billing", "priority": "normal", "queue": "billing", "sla_minutes": 240}
+    },
+    {
+      "name": "feature request",
+      "request": {"id": 103, "subject": "Feature request", "body": "Please add scheduled exports, it would be great"},
+      "status": 200,
+      "expect": {"category": "feature", "priority": "low", "queue": "product", "sla_minutes": 1440}
+    },
+    {
+      "name": "empty ticket is rejected with 422",
+      "request": {},
+      "status": 422,
+      "expect": {"error": "subject or body is required"}
+    }
+  ]
+}

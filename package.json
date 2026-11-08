@@ -1,0 +1,11 @@
+{
+  "name": "n8n-workflows",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "python build.py",
+    "test:unit": "node --test tests/unit/triage.test.mjs tests/unit/sla.test.mjs tests/unit/invoice.test.mjs tests/unit/lead.test.mjs",
+    "test:static": "python -m pytest tests/test_workflow_files.py -q",
+    "test:integration": "python -m pytest tests/integration -q"
+  }
+}

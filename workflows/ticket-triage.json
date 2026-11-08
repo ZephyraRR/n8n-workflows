@@ -1,0 +1,88 @@
+{
+  "name": "Ticket triage and routing",
+  "id": "80be44eae82952",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "triage",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "62944a2c-3c2b-51c2-9553-b1cb72e21db3",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "9049fa59-35c0-5770-a350-2beaf8fbcb2e"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// n8n Code node, mode \"Run Once for All Items\".\n// Input: the Webhook item, body = { id, subject, body, customer_tier: \"free\" | \"pro\" | \"enterprise\" }\n// Output: one item { id, category, priority, queue, sla_minutes, reasons[] } or { error } (the Respond node turns an error into HTTP 422).\nconst item = $input.first().json;\nconst b = (item && item.body) || {};\nconst subject = String(b.subject || '').trim();\nconst text = String(b.body || '').trim();\nif (!subject && !text) {\n  return [{ json: { error: 'subject or body is required' } }];\n}\nconst tier = ['free', 'pro', 'enterprise'].includes(String(b.customer_tier || '').toLowerCase()) ? String(b.customer_tier).toLowerCase() : 'free';\nconst hay = (subject + ' \\n ' + text).toLowerCase().slice(0, 20000);\n\n// Order matters: when two categories score the same, the earlier one wins.\nconst RULES = [\n  { cat: 'security', rx: /\\b(hacked|hack(ed|ing)?|breach(ed)?|phishing|data leak|leaked|unauthori[sz]ed (access|login|charge)|stolen|compromised|account takeover|suspicious (login|activity))\\b/g },\n  { cat: 'outage', rx: /\\b(outage|is down|are down|went down|cannot access|can't access|unreachable|502|503|504|500 error|timeouts?|not loading|completely broken|production (is )?(down|broken))\\b/g },\n  { cat: 'billing', rx: /\\b(refund|chargeback|charged twice|double charge|invoice|billing|payment (failed|declined)|card (declined|rejected)|subscription|cancel(l)?ation|overcharged|receipt|vat)\\b/g },\n  { cat: 'account', rx: /\\b(password|log ?in|sign ?in|locked out|2fa|two[- ]factor|verification (email|code)|change (my )?email|reset link)\\b/g },\n  { cat: 'bug', rx: /\\b(bug|crash(es|ed)?|exception|stack ?trace|error message|doesn't work|does not work|not working|broken|fails?|failing|wrong result)\\b/g },\n  { cat: 'abuse', rx: /\\b(spam|harass(ment|ing)?|abusive|scam(mer)?|fake (account|profile)|report (a )?user)\\b/g },\n  { cat: 'feature', rx: /\\b(feature request|would be (great|nice)|suggestion|please add|it would help if|wish (you|it) (had|could)|roadmap)\\b/g },\n];\nconst scores = RULES.map((r) => {\n  const hits = hay.match(r.rx) || [];\n  return { cat: r.cat, n: hits.length, hits: [...new Set(hits.map((h) => (typeof h === 'string' ? h : String(h))))] };\n});\nlet best = scores.reduce((a, s) => (s.n > a.n ? s : a), { cat: 'other', n: 0, hits: [] });\nconst category = best.n > 0 ? best.cat : 'other';\n\nconst ORDER = ['low', 'normal', 'high', 'urgent'];\nlet priority = 'normal';\nif (category === 'security') priority = 'urgent';\nelse if (category === 'outage') priority = tier !== 'free' || /\\b(production|all users|everyone|entire)\\b/.test(hay) ? 'urgent' : 'high';\nelse if (category === 'billing') priority = /\\b(chargeback|dispute|double charge|charged twice|fraud)\\b/.test(hay) ? 'high' : 'normal';\nelse if (category === 'feature') priority = 'low';\nif (tier === 'enterprise' && priority !== 'urgent') priority = ORDER[Math.min(ORDER.indexOf(priority) + 1, 3)];\n\nconst QUEUE = { security: 'security', outage: 'engineering', bug: 'engineering', billing: 'billing', account: 'support', abuse: 'trust-safety', feature: 'product', other: 'support' };\nconst SLA = { urgent: 15, high: 60, normal: 240, low: 1440 };\nreturn [{ json: { id: b.id === undefined ? null : b.id, category, priority, queue: QUEUE[category], sla_minutes: SLA[priority], customer_tier: tier, reasons: best.hits.slice(0, 5) } }];\n"
+      },
+      "id": "ef211369-714a-53f4-9527-114f876d8e34",
+      "name": "Compute",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $('Compute').first().json.error ? { error: $('Compute').first().json.error } : $('Compute').first().json }}",
+        "options": {
+          "responseCode": "={{ $('Compute').first().json.error ? 422 : 200 }}"
+        }
+      },
+      "id": "02221a86-3d60-53c1-ac6b-2b9807da0481",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        480,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Compute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "meta": {
+    "description": "Classifies a support ticket, sets priority, queue and SLA."
+  },
+  "tags": []
+}
